@@ -10,7 +10,7 @@ editor_options:
 ### Introduction
 
 We chose the Coffee Quality dataset, which has been scraped from the Coffee Quality Institute database in 2018.
-Our dataset contains information on two different coffee plants: Arabica and Robusta. Information about quality measures, coffee bean data, and farm data are included. Quality measures include: aroma, flavor, aftertaste, acidity, body, balance, uniformity, cup cleanliness, sweetness, moisture, and defects. Bean data includes the species, color, and the method of processing. Farmdata in which we are interested includes region/country of origin, and the altitude at which the farm is located with respect to sea level.
+Our dataset contains information on two different coffee plants: Arabica and Robusta. Information about quality measures, coffee bean data, and farm data are included. Quality measures include: aroma, flavor, aftertaste, acidity, body, balance, uniformity, cup cleanliness, sweetness, moisture, and defects. Bean data includes the species, color, and the method of processing. Farm data in which we are interested includes region/country of origin, and the altitude at which the farm is located with respect to sea level.
 
 ### Preparatory work
 
@@ -19,16 +19,12 @@ library(tidyverse)
 library(dplyr)
 library(mice)
 
-coffee <- read_csv("coffee.sort.csv") 
-
-# coffee <- read_csv("coffee.sort.csv") %>%
-#   mutate(across(where(is.character), as.factor)) #Needs updated dplyr
-
-coffee[sapply(coffee, is.character)] <- lapply(coffee[sapply(coffee, is.character)], as.factor)  #  Converting all character to factors
+coffee <- read_csv("coffee.sort.csv") %>%
+  mutate(across(where(is.character), as.factor)) #Needs updated dplyr
 ```
 
 
-### Missing data
+### Missing data per column
 
 ```{r}
 colSums(is.na(coffee))
@@ -38,48 +34,48 @@ colSums(is.na(coffee))
 #### Missing data in the country of origin
 
 There is one NA value in the country of origin.
-This coffee does have an owner and certification body that both only operate in Colombia according to their websites. Also all coffees in the data with those owners and that certification body are Colombian. Therefore, we assign this missing value to be Colombia.
+This coffee does have an owner and certification body that both only operate in Colombia according to their websites. Also, all coffees in the data with those owners and that certification body are Colombian. Therefore, we assign this missing value to be Colombia.
 
 ```{r}
-which(is.na(coffee$Country.of.Origin)) 
-
-coffee[1198,]
+coffee %>% filter(is.na(Country.of.Origin))
 
 coffee %>%
   filter(Owner == "racafe & cia s.c.a" & Certification.Body == "Almacafé") %>%
   count(Country.of.Origin)
 
-coffee$Country.of.Origin[1198] <- "Colombia"
-
+coffee <- coffee %>% 
+  mutate(Country.of.Origin = replace(Country.of.Origin, 
+                                     Owner == "racafe & cia s.c.a" & 
+                                       Certification.Body == "Almacafé" & 
+                                       is.na(Country.of.Origin),
+                                     "Colombia"))
 ```
 
 #### Delete erroneous data points
 
 In the ranking categories, all values lie between at least 5 and 10, except for one coffee, which has 0 in all values. To delete this erroneous value, we keep all coffees that have at least one taste metric above 5.
 
+In the altitude category, we spot a clear outlier, which could affect the imputation process. 
+Given that an altitude of over 10000m seems highly unlikely, we filter these out as well.
+
 ```{r}
+# Look at data distributions
 coffee %>% 
-  select(Aroma:Uniformity) %>% 
   summary()
 
+# Filter out unexpected rankings
 coffee %>%
   filter(Aroma < 5 | Flavor < 5 | Aftertaste < 5 | Acidity < 5 | Body < 5 | Balance < 5 | Uniformity < 5)
-
-
 
 coffee <- 
   coffee %>% 
   filter(Aroma > 5 | Flavor > 5 | Aftertaste > 5 | Acidity > 5 | Body > 5 | Balance > 5 | Uniformity > 5)
 
-
-
 coffee %>% 
   select(Aroma:Uniformity) %>% 
   summary()
 
-
-  #  Prior to imputation we remove the outliers as our imputed values might be affected. With predictive mean matching 
-  #   the imputed values always fall within the observed range, and thus these outliers might affect the imputations. Altitudes of > 10000m seem highly  unlikely
+# Filter out unexpected mean altitude
 summary(coffee$altitude_mean_meters)
 coffee <- filter(coffee, 
                  altitude_mean_meters < 10000.000 | is.na(altitude_mean_meters)) #Keep proper values and NAs
@@ -91,17 +87,18 @@ coffee <- filter(coffee,
 
 The selected columns with missing data includes quakers, altitude_mean_meters, color, and processing method.
 The number of complete cases in our selected coffee dataset is 930 (down from 1334).
-Complete case analysis decreases our sample size, and can potentially lead to reduced statistical efficiency by increasing the potential for bias. Another option is multiple imputation, as our sample size will be preserved
+Complete case analysis decreases our sample size, and can potentially lead to reduced statistical efficiency by increasing the potential for bias. Another option is multiple imputation, as our sample size will be preserved.
+
 We choose to handle our missing data problem by using multiple imputation.
 
 ```{r}
-coffee_select <- coffee[c(1, 2, 12, 19:35)]  #  These variables seem most interesting and applicable for imputation
+coffee_select <- coffee %>% select(Species, Country.of.Origin, altitude_mean_meters, Processing.Method:Color) # These variables seem most interesting and applicable for imputation
 colnames(coffee_select)
 
 fluxplot(coffee_select, labels = TRUE, main = "Outflux vs Influx", eqscplot = FALSE) # This plot indicates which variables to use
 
 set.seed(1000)
-ini <- mice(coffee_select, maxit=0, print=F)
+ini <- mice(coffee_select, maxit = 0, print = FALSE)
 pred <- ini$pred
 
 pred[ "altitude_mean_meters", c("Processing.Method", "Color")] <- 0
@@ -109,23 +106,26 @@ pred[ "Processing.Method", c("altitude_mean_meters", "Color") ] <- 0
 pred[ "Quakers", c("altitude_mean_meters", "Processing.Method", "Color")  ] <- 0
 pred[ "Color" , c("altitude_mean_meters", "Processing.Method") ] <- 0
 
-meth <- ini$method  #  Predictive mean matching for continous variables and a classification technique for the categorical variables
+meth <- ini$method  # Predictive mean matching for continous variables and a classification technique for the categorical variables
 meth                  
 
-imp <- mice(coffee_select, pred = pred, meth = meth, seed = 999, print=F, maxit = 10)  #  The multiple imputed datasets
-stripplot(imp, altitude_mean_meters~.imp, pch=20, cex=1.4)
-stripplot(imp, Processing.Method~.imp, pch=20, cex=1.4)
-stripplot(imp, Quakers~.imp, pch=20, cex=1.4)
-stripplot(imp, Color~.imp, pch=20, cex=1.4) #  Imputations seem to be adequate
+imp <- mice(coffee_select, pred = pred, meth = meth, seed = 999, print = FALSE, maxit = 10)  # The multiple imputed datasets
+stripplot(imp, altitude_mean_meters ~ .imp, pch = 20, cex = 1.4)
+stripplot(imp, Processing.Method ~ .imp, pch = 20, cex = 1.4)
+stripplot(imp, Quakers ~ .imp, pch = 20, cex = 1.4)
+stripplot(imp, Color ~ .imp, pch = 20, cex = 1.4)
 
 
-coffee_select <- complete(imp)
-sum(is.na(coffee_select))
+coffee_imp <- complete(imp)
+sum(is.na(coffee_imp))
 ```
 
-
+Judging from these plots, imputations seem to be adequate.
 
 ### Construction of a 'continent' variable
+
+We create a continent list for use in filtering in the Shiny visualisation. 
+This list is semi-specific to coffee, using traditional coffee regions like separate Central and South America.
 
 ```{r}
 North_America <- c("United States", "United States (Hawaii)", "Mexico", "United States (Puerto Rico)", "Haiti")
@@ -134,19 +134,23 @@ South_America <- c("Brazil", "Peru", "Colombia", "Ecuador")
 Africa <- c("Ethiopia", "Uganda", "Tanzania, United Republic Of", "Kenya", "Burundi", "Rwanda", "Malawi", "Zambia", "Mauritius", "Cote d?Ivoire")
 Asia <- c("Indonesia", "China", "Taiwan", "Thailand", "Papua New Guinea", "Vietnam", "Philippines", "Laos", "Myanmar", "India", "Japan")
 
-attach(coffee_select)
-coffee_select$Continent[Country.of.Origin %in% Africa]          <- "Africa"
-coffee_select$Continent[Country.of.Origin %in% Asia]            <- "Asia"
-coffee_select$Continent[Country.of.Origin %in% Central_America] <- "Central America"
-coffee_select$Continent[Country.of.Origin %in% North_America]   <- "North America"
-coffee_select$Continent[Country.of.Origin %in% South_America]   <- "South America"
-detach(coffee_select)
-coffee_select$Continent <- factor(coffee_select$Continent)
 
-colnames(coffee_select[5:10])
-coffee_select$mean_quality <- round((coffee_select$Aroma + coffee_select$Flavor + coffee_select$Aftertaste + coffee_select$Acidity + coffee_select$Body + coffee_select$Balance) / 6, 2)
+coffee_imp <- coffee_imp %>% 
+  mutate(Continent = case_when(
+    Country.of.Origin %in% Africa ~ "Africa",
+    Country.of.Origin %in% Asia ~ "Asia",
+    Country.of.Origin %in% Central_America ~ "Central America",
+    Country.of.Origin %in% North_America ~ "North America",
+    Country.of.Origin %in% South_America ~ "South America",
+  )) %>% 
+  mutate(Continent = as.factor(Continent))
 
-save(coffee_select, file = "coffee_select.Rdata")
+coffee_imp <- coffee_imp %>% 
+  rowwise() %>% 
+  mutate(mean_quality = mean(c(Aroma, Flavor, Aftertaste, Acidity, Body, Balance)) %>% round(2)) %>% 
+  ungroup()
+
+save(coffee_imp, file = "coffee_imp.Rdata")
 
 ```
 
