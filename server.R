@@ -1,10 +1,11 @@
 library(shiny)
 library(tidyverse)
 library(broom)
+load("coffee_imp.Rdata")
 
 shinyServer(function(input, output) {
   filtered <- reactive({                                                     
-    coffee_select %>%                                              
+    coffee_imp %>%                                              
       filter(mean_quality >= input$qualityInput[1],
              mean_quality <= input$qualityInput[2],
              Continent %in% input$continentInput,

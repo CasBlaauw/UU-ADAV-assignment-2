@@ -1,6 +1,7 @@
 library(shiny)
 library(dplyr)
 library(ggplot2)
+load("coffee_imp.Rdata")
 
 
 shinyUI(fluidPage(
@@ -11,13 +12,13 @@ shinyUI(fluidPage(
     sidebarLayout(
         sidebarPanel(
             sliderInput(   
-              inputId = "qualityInput",      #  A mean score of 6 quality-indicator is taken, for which the User can adjust the range
+              inputId = "qualityInput",      #  A mean score of 6 quality-indicator is taken, for which the user can adjust the range
               label = "Mean score of Quality measures",
               min = 6.45,
               max = 8.64,
-              value = c(min, max),
+              value = c(6.45, 8.64),
               step = 0.1),
-            selectInput(                     #  Simple select concepts referreing to the quality measurements
+            selectInput(                     #  Simple select concepts referring to the quality measurements
                 inputId = "xInput",
                 label = "Type of quality measure",
                 choices = c("Aroma", "Flavor", "Aftertaste", "Acidity", "Body", "Balance"),
@@ -25,13 +26,13 @@ shinyUI(fluidPage(
             checkboxGroupInput(             #  Continent(s) of interest
                 inputId = "continentInput",
                 label = "Continent",
-                choices = levels(coffee_select$Continent),
-                selected = levels(coffee_select$Continent)),
+                choices = levels(coffee_imp$Continent),
+                selected = levels(coffee_imp$Continent)),
             checkboxGroupInput(            #  Processing methods of coffee beans
                 inputId = "processInput",
                 label = "Processing Method",
-                choices = levels(coffee_select$Processing.Method),
-                selected = levels(coffee_select$Processing.Method))
+                choices = levels(coffee_imp$Processing.Method),
+                selected = levels(coffee_imp$Processing.Method))
             ),
         
         mainPanel(
